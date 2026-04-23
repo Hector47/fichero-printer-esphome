@@ -1,0 +1,90 @@
+# Fichero D11s thermal label printer – ESPHome example configuration
+#
+# This example shows how to wire up the external component and trigger a
+# print from a Home Assistant service call.
+#
+# Replace AA:BB:CC:DD:EE:FF with your printer's BLE MAC address.
+# You can find it with: uv run fichero info   (from the Python CLI)
+# or by watching the ESP32 serial log during the first BLE scan.
+
+esphome:
+  name: fichero-printer
+  friendly_name: "Fichero Label Printer"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# --------------------------------------------------------------------------
+# BLE tracker required for the ble_client component
+# --------------------------------------------------------------------------
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 1100ms
+    window: 1100ms
+    active: true
+
+# --------------------------------------------------------------------------
+# BLE client – connects to the Fichero printer by MAC address
+# --------------------------------------------------------------------------
+ble_client:
+  - mac_address: "AA:BB:CC:DD:EE:FF"
+    id: fichero_ble_client
+    on_connect:
+      - logger.log: "Fichero printer BLE connected"
+    on_disconnect:
+      - logger.log: "Fichero printer BLE disconnected"
+
+# --------------------------------------------------------------------------
+# Fichero printer component
+# --------------------------------------------------------------------------
+external_components:
+  - source: github://Hector47/fichero-printer-esphome@main
+    components: [fichero_printer]
+
+fichero_printer:
+  id: my_printer
+  ble_client_id: fichero_ble_client
+  # density: 0=light, 1=medium (default), 2=thick
+  density: 1
+  # paper_type: 0=gap/label (default), 1=black mark, 2=continuous
+  paper_type: 0
+
+# --------------------------------------------------------------------------
+# Example button: print a small test pattern when pressed
+#
+# The raster data must be a flat byte array:
+#   rows * 12 bytes  (96 px wide = 12 bytes/row, MSB-first, 1=black)
+#
+# Here we print a solid black 96×8 px bar (8 rows × 12 bytes = 96 bytes).
+# For real labels, generate the bytes with Pillow on a PC and embed them here
+# or pass them dynamically via a Home Assistant service call.
+# --------------------------------------------------------------------------
+button:
+  - platform: template
+    name: "Print test label"
+    on_press:
+      - fichero_printer.print:
+          id: my_printer
+          # 8 rows of solid black (all bits = 1)
+          data: !lambda |-
+            std::vector<uint8_t> d(8 * 12, 0xFF);
+            return d;
